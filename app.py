@@ -1,21 +1,27 @@
 import streamlit as st
 import time
 import os
+from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
+import torch
 
-# Page config
+# -----------------------------------------
+# Page Config
+# -----------------------------------------
 st.set_page_config(
     page_title="User Stories Generator",
     page_icon="📋",
     layout="wide"
 )
 
-# Title
 st.title("📋 AI User Stories Generator")
-st.markdown("Convert requirements to user stories")
+st.markdown("Convert plain requirements into User Stories + Module Breakdown using your fine-tuned FLAN-T5 model.")
 
-# Check files
-st.sidebar.header("📁 Files Status")
-files = [
+# -----------------------------------------
+# Check Files
+# -----------------------------------------
+st.sidebar.header("📁 Model Files Status")
+
+required_files = [
     "adapter_config.json",
     "adapter_model.safetensors",
     "tokenizer_config.json",
@@ -23,79 +29,106 @@ files = [
     "tokenizer.json"
 ]
 
-for file in files:
+missing = False
+for file in required_files:
     if os.path.exists(file):
         st.sidebar.success(f"✅ {file}")
     else:
         st.sidebar.error(f"❌ {file}")
+        missing = True
 
-# Main app
+# -----------------------------------------
+# Load Model
+# -----------------------------------------
+@st.cache_resource
+def load_model():
+    base_model = "google/flan-t5-base"   # you can change if needed
+
+    tokenizer = AutoTokenizer.from_pretrained("./")
+    model = AutoModelForSeq2SeqLM.from_pretrained(
+        base_model,
+        device_map="auto"
+    )
+
+    # Load LoRA adapter
+    model.load_adapter("./", "lora")
+    model.set_active_adapters("lora")
+
+    return tokenizer, model
+
+if not missing:
+    tokenizer, model = load_model()
+else:
+    st.warning("⚠️ Missing model files. Generation disabled.")
+
+# -----------------------------------------
+# Input Box
+# -----------------------------------------
 requirement = st.text_area(
     "Enter requirement:",
     height=150,
     placeholder="Example: As a restaurant owner, I want a mobile app for online ordering..."
 )
 
+# -----------------------------------------
+# Generate Button
+# -----------------------------------------
 if st.button("🚀 Generate", type="primary"):
-    if requirement:
-        with st.spinner("Generating..."):
-            time.sleep(2)
-            
-            # Show results
-            st.markdown("### 📖 User Stories")
-            st.write("1. **As a customer**, I can browse menu items with images and descriptions")
-            st.write("2. **As a customer**, I can add items to cart with customization options")
-            st.write("3. **As a customer**, I can place orders with multiple payment methods")
-            st.write("4. **As a restaurant**, I can manage orders in real-time dashboard")
-            st.write("5. **As a restaurant**, I can update menu items and pricing")
-            
-            st.markdown("### 🏗️ Module Breakdown")
-            st.write("- **Menu Management Module**: CRUD operations for menu items")
-            st.write("- **Order Processing Module**: Handle orders from cart to kitchen")
-            st.write("- **Payment Integration Module**: Secure payment processing")
-            st.write("- **Admin Dashboard Module**: Analytics and order management")
-            st.write("- **Notification Module**: SMS/Email alerts for order updates")
-            
-            st.success("✅ Generation complete!")
-            
-            # Download
-            st.download_button(
-                "📥 Download Results",
-                f"""Generated from: {requirement}
-                
-User Stories:
-1. As a customer, I can browse menu items with images and descriptions
-2. As a customer, I can add items to cart with customization options
-3. As a customer, I can place orders with multiple payment methods
-4. As a restaurant, I can manage orders in real-time dashboard
-5. As a restaurant, I can update menu items and pricing
 
-Module Breakdown:
-- Menu Management Module
-- Order Processing Module
-- Payment Integration Module
-- Admin Dashboard Module
-- Notification Module""",
-                file_name="user_stories.txt",
-                mime="text/plain"
-            )
+    if missing:
+        st.error("❌ Cannot generate because model files are missing.")
+    elif not requirement:
+        st.warning("⚠️ Please enter a requirement first.")
     else:
-        st.warning("Please enter a requirement")
+        with st.spinner("Generating... please wait"):
 
+            # Build prompt
+            prompt = f"""
+Requirement: {requirement}
+
+Generate:
+1. 5 User Stories (As a ___, I want ___ so that ___)
+2. Module Breakdown with bullet points
+"""
+
+            inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
+
+            output = model.generate(
+                **inputs,
+                max_length=512,
+                num_beams=4,
+                temperature=0.7
+            )
+
+            decoded = tokenizer.decode(output[0], skip_special_tokens=True)
+
+        # ------------------------------
+        # Display Output
+        # ------------------------------
+        st.markdown("### 📖 Generated Output")
+        st.write(decoded)
+
+        # Download button
+        st.download_button(
+            "📥 Download Result",
+            decoded,
+            file_name="user_stories_output.txt",
+            mime="text/plain"
+        )
+
+# -----------------------------------------
 # Examples
+# -----------------------------------------
 with st.expander("💡 Examples"):
     examples = [
         "E-commerce platform with user reviews and ratings",
         "Fitness app with workout tracking and nutrition plans",
         "Hotel booking system with real-time availability",
-        "Learning management system with quizzes and progress tracking"
+        "LMS with quizzes, assignments, and progress tracking"
     ]
     
     for i, example in enumerate(examples, 1):
-        if st.button(f"Example {i}: {example}", key=f"ex_{i}"):
-            st.session_state.last_example = example
+        st.code(f"{example}", language="text")
 
-# Footer
 st.markdown("---")
-st.caption("App is running! ✅")
-
+st.caption("AI User Story Generator is running! 🚀")
