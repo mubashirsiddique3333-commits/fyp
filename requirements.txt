@@ -1,6 +1,7 @@
-streamlit
-torch
-torchtext
-transformers
-sentencepiece
-sacrebleu
+torch>=2.0.0
+transformers>=4.35.0
+accelerate>=0.24.0
+bitsandbytes>=0.41.0
+peft>=0.6.0
+sentencepiece>=0.1.99
+streamlit>=1.28.0
